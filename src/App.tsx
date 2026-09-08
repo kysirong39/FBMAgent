@@ -9,7 +9,8 @@ import CampaignHistory from './components/CampaignHistory';
 import HelpStandardsModal from './components/HelpStandardsModal';
 import { CampaignInput, CampaignResult } from './types';
 import { SAMPLE_CAMPAIGNS } from './data/samples';
-import { Eye, FileCode, AlertCircle } from 'lucide-react';
+import { generateClientSideCampaign } from './data/clientFallbackGenerator';
+import { Eye, FileCode, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
 
 const INITIAL_CAMPAIGN = SAMPLE_CAMPAIGNS[0].data;
 
@@ -126,9 +127,13 @@ export default function App() {
         body: JSON.stringify(formData),
       });
 
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
+      if (!data.success) {
         throw new Error(data.error || 'Có lỗi xảy ra khi tạo chiến dịch marketing.');
       }
 
@@ -141,13 +146,34 @@ export default function App() {
         videoScript: data.videoScript,
         jsonData: data.jsonData,
         input: { ...formData },
+        metadata: data.metadata,
       };
 
       setCurrentResult(newResult);
       setHistory((prev) => [newResult, ...prev.filter((item) => item.id !== newResult.id)]);
-    } catch (err: any) {
-      console.error('Generation failed:', err);
-      setErrorMessage(err?.message || 'Không thể tạo nội dung, vui lòng thử lại.');
+    } catch (serverErr: any) {
+      console.warn('Server generation unavailable, using client fallback (e.g. GitHub Pages):', serverErr);
+      try {
+        // Resilient fallback for GitHub Pages (client-side static hosting)
+        const fallbackData = generateClientSideCampaign(formData);
+        const fallbackResult: CampaignResult = {
+          id: `campaign-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          rawText: fallbackData.rawText,
+          facebookPost: fallbackData.facebookPost,
+          imagePrompt: fallbackData.imagePrompt,
+          videoScript: fallbackData.videoScript,
+          jsonData: fallbackData.jsonData,
+          input: { ...formData },
+          metadata: fallbackData.metadata,
+        };
+
+        setCurrentResult(fallbackResult);
+        setHistory((prev) => [fallbackResult, ...prev.filter((item) => item.id !== fallbackResult.id)]);
+      } catch (clientErr: any) {
+        console.error('Client fallback failed:', clientErr);
+        setErrorMessage(serverErr?.message || 'Không thể tạo nội dung, vui lòng thử lại.');
+      }
     } finally {
       setIsLoading(false);
     }

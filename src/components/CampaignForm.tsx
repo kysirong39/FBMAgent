@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Sparkles, Wand2, RefreshCw, Calendar, Tag, Target, MessageSquare, Layers, Dumbbell, Compass, Globe, Link as LinkIcon, CheckCircle2, AlertCircle } from 'lucide-react';
 import { CampaignInput, CopywritingFormula, SportCategory, MarketingAngle } from '../types';
 import { SAMPLE_CAMPAIGNS } from '../data/samples';
+import { extractUrlClientSide } from '../data/clientFallbackGenerator';
 
 interface CampaignFormProps {
   formData: CampaignInput;
@@ -90,31 +91,49 @@ export default function CampaignForm({
         body: JSON.stringify({ url: formData.productUrl.trim() }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Không thể trích xuất dữ liệu từ đường link này.');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          const extracted = json.data;
+          setFormData((prev) => ({
+            ...prev,
+            productName: extracted.productName || prev.productName,
+            sportCategory: extracted.sportCategory || prev.sportCategory,
+            productDescription: extracted.productDescription || prev.productDescription,
+            targetAudience: extracted.targetAudience || prev.targetAudience,
+            offerDetails: extracted.offerDetails || prev.offerDetails,
+            marketingAngle: extracted.marketingAngle || prev.marketingAngle,
+          }));
+
+          setExtractMessage({
+            type: 'success',
+            text: `Đã tự động trích xuất thông tin sản phẩm thành công từ liên kết!`,
+          });
+          return;
+        }
       }
-
-      const extracted = json.data;
-      setFormData((prev) => ({
-        ...prev,
-        productName: extracted.productName || prev.productName,
-        sportCategory: extracted.sportCategory || prev.sportCategory,
-        productDescription: extracted.productDescription || prev.productDescription,
-        targetAudience: extracted.targetAudience || prev.targetAudience,
-        offerDetails: extracted.offerDetails || prev.offerDetails,
-        marketingAngle: extracted.marketingAngle || prev.marketingAngle,
-      }));
-
-      setExtractMessage({
-        type: 'success',
-        text: `Đã tự động trích xuất thông tin sản phẩm thành công từ liên kết!`,
-      });
-    } catch (err: any) {
-      setExtractMessage({
-        type: 'error',
-        text: err?.message || 'Có lỗi xảy ra khi đọc link. Bạn vẫn có thể điền thông tin thủ công bên dưới.',
-      });
+      throw new Error('Server endpoint unavailable');
+    } catch {
+      // Fallback for static hosting (GitHub Pages)
+      try {
+        const clientExtracted = extractUrlClientSide(formData.productUrl.trim());
+        setFormData((prev) => ({
+          ...prev,
+          productName: clientExtracted.productName || prev.productName,
+          sportCategory: (clientExtracted.sportCategory as any) || prev.sportCategory,
+          productDescription: clientExtracted.productDescription || prev.productDescription,
+          offerDetails: clientExtracted.offerDetails || prev.offerDetails,
+        }));
+        setExtractMessage({
+          type: 'success',
+          text: `Đã phân tích đường link thành công (chế độ tĩnh GitHub Pages)!`,
+        });
+      } catch (err: any) {
+        setExtractMessage({
+          type: 'error',
+          text: err?.message || 'Có lỗi xảy ra khi đọc link. Bạn vẫn có thể điền thông tin thủ công bên dưới.',
+        });
+      }
     } finally {
       setIsExtracting(false);
     }
