@@ -1,0 +1,6 @@
+{
+  "name": "Trợ Lý Marketing Facebook AI",
+  "description": "Chuyên gia tạo nội dung Facebook Marketing, kịch bản video ngắn và prompt ảnh cho lĩnh vực thể dục thể thao, máy tập và dụng cụ thể thao chuẩn JSON API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
