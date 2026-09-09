@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -38,10 +38,21 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Ensure .nojekyll exists
-        run: touch ./dist/.nojekyll
+      - name: Ensure .nojekyll and 404.html in dist and docs
+        run: |
+          touch ./dist/.nojekyll
+          touch ./docs/.nojekyll
+          cp ./public/404.html ./dist/404.html 2>/dev/null || true
+          cp ./public/404.html ./docs/404.html 2>/dev/null || true
 
-      - name: Setup GitHub Pages
+      - name: Deploy to gh-pages branch (supports 'Deploy from a branch')
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          keep_files: false
+
+      - name: Setup GitHub Pages (supports 'GitHub Actions')
         uses: actions/configure-pages@v4
 
       - name: Upload Pages artifact
@@ -52,3 +63,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
