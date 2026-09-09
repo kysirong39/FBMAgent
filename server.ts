@@ -3,6 +3,12 @@ import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
+import {
+  detectSportFromText,
+  sanitizeCtaForSport,
+  sanitizeNotesForSport,
+  SPORT_CTA_PRESETS,
+} from './src/data/sportsContextHelper';
 
 dotenv.config();
 
@@ -153,10 +159,12 @@ Hãy phân tích kỹ và trích xuất thành định dạng JSON với các th
 {
   "productName": "Tên đầy đủ của sản phẩm/dụng cụ hoặc bài viết",
   "sportCategory": "Chọn 1 môn phù hợp nhất: Pickleball, Cầu lông, Bóng đá, Máy tập gym & Cardio, Bóng rổ, Bóng bàn, Bơi lội, Yoga & Thể hình, hoặc Dụng cụ thể thao khác",
-  "productDescription": "Tóm tắt từ 3-5 tính năng kỹ thuật, công nghệ trợ lực, chất liệu cao cấp (VD: carbon, đệm khí silicon,...), độ giảm chấn hoặc lợi ích thể thao vượt trội",
+  "productDescription": "Tóm tắt từ 3-5 tính năng kỹ thuật, công nghệ trợ lực, chất liệu cao cấp (VD: carbon, đệm khí silicon, nano chống đọng sương,...), độ giảm chấn hoặc lợi ích thể thao vượt trội",
   "targetAudience": "Đối tượng người chơi hoặc khách hàng mục tiêu phù hợp nhất",
   "offerDetails": "Giá bán, chương trình giảm giá, quà tặng đi kèm (nếu phát hiện trong bài)",
-  "marketingAngle": "Gợi ý 1 trong: Tăng hiệu suất & Nâng trình thi đấu, Đốt mỡ giảm cân & Lột xác vóc dáng, Bảo vệ cơ khớp & Chống chấn thương, Đam mê & Giao lưu phong trào CLB, Ưu đãi số lượng lớn & Xả kho quà tặng"
+  "marketingAngle": "Gợi ý 1 trong: Tăng hiệu suất & Nâng trình thi đấu, Đốt mỡ giảm cân & Lột xác vóc dáng, Bảo vệ cơ khớp & Chống chấn thương, Đam mê & Giao lưu phong trào CLB, Ưu đãi số lượng lớn & Xả kho quà tặng",
+  "callToAction": "Lời kêu gọi hành động (CTA) THỰC SỰ PHÙ HỢP 100% VỚI SẢN PHẨM VÀ BỘ MÔN (Ví dụ: nếu là Kính bơi/Đồ bơi: 'Nhắn tin ngay để chọn mẫu kính bơi vừa vặn chống nước & nhận quà tặng!', nếu là Giày: 'Nhắn tin ngay để chọn chuẩn size chân & nhận quà tặng!', nếu là Máy chạy bộ: 'Để lại số điện thoại để nhận lịch hẹn giao và lắp đặt miễn phí tại nhà!'. TUYỆT ĐỐI KHÔNG dùng từ ngữ môn khác như 'test vợt', 'căng cước')",
+  "additionalNotes": "Gợi ý điểm nhấn trải nghiệm riêng biệt cho sản phẩm này"
 }
 
 Chỉ xuất duy nhất khối mã JSON hợp lệ nằm trong \`\`\`json ... \`\`\`.`;
@@ -180,20 +188,8 @@ Chỉ xuất duy nhất khối mã JSON hợp lệ nằm trong \`\`\`json ... \`
     }
 
     if (!extractedJson) {
-      const lower = (pageData.title + ' ' + pageData.textSnippet).toLowerCase();
-      const detectedCategory = lower.includes('pickleball')
-        ? 'Pickleball'
-        : lower.includes('cầu lông')
-        ? 'Cầu lông'
-        : lower.includes('bóng đá') || lower.includes('giày đá bóng')
-        ? 'Bóng đá'
-        : lower.includes('chạy bộ') || lower.includes('máy tập') || lower.includes('tập gym')
-        ? 'Máy tập gym & Cardio'
-        : lower.includes('bóng rổ')
-        ? 'Bóng rổ'
-        : lower.includes('bơi')
-        ? 'Bơi lội'
-        : 'Dụng cụ thể thao khác';
+      const textToAnalyze = pageData.title + ' ' + pageData.metaDesc + ' ' + pageData.textSnippet;
+      const detectedCategory = detectSportFromText(textToAnalyze);
 
       extractedJson = {
         productName: pageData.title || 'Sản phẩm thể thao chính hãng',
@@ -204,6 +200,23 @@ Chỉ xuất duy nhất khối mã JSON hợp lệ nằm trong \`\`\`json ... \`
         marketingAngle: 'Tăng hiệu suất & Nâng trình thi đấu',
       };
     }
+
+    // Ensure category, callToAction and additionalNotes are strictly coherent
+    const finalCategory = detectSportFromText(
+      (extractedJson.productName || '') + ' ' + (extractedJson.sportCategory || '') + ' ' + (pageData.title || '')
+    ) || extractedJson.sportCategory || 'Dụng cụ thể thao khác';
+
+    extractedJson.sportCategory = finalCategory;
+    extractedJson.callToAction = sanitizeCtaForSport(
+      finalCategory,
+      extractedJson.productName || '',
+      extractedJson.callToAction || ''
+    );
+    extractedJson.additionalNotes = sanitizeNotesForSport(
+      finalCategory,
+      extractedJson.productName || '',
+      extractedJson.additionalNotes || ''
+    );
 
     return res.json({
       success: true,
@@ -244,10 +257,28 @@ app.post('/api/generate-campaign', async (req: Request, res: Response) => {
       });
     }
 
+    // Context integrity: auto-detect and sanitize category, CTA and notes
+    const effectiveCategory =
+      detectSportFromText(productName + ' ' + (sportCategory || '')) || sportCategory || 'Dụng cụ thể thao khác';
+    const effectiveCta = sanitizeCtaForSport(effectiveCategory, productName, callToAction);
+    const effectiveNotes = sanitizeNotesForSport(effectiveCategory, productName, additionalNotes);
+
     const ai = getGenAI();
 
     const systemPrompt = `Bạn là một Giám đốc Sáng tạo và Chuyên gia Marketing Facebook hàng đầu chuyên biệt trong lĩnh vực THỂ DỤC THỂ THAO, MÁY TẬP & DỤNG CỤ THỂ THAO (Pickleball, Cầu lông, Bóng đá, Máy tập Gym/Cardio, Bóng rổ, Bóng bàn, Bơi lội, Yoga & Fitness).
 Nhiệm vụ của bạn là tiếp nhận thông tin về dụng cụ, máy tập hoặc sản phẩm thể thao từ người dùng, sau đó tạo ra nội dung marketing thể thao đỉnh cao, giàu năng lượng, kích thích đam mê vận động, kịch bản video ngắn cuốn hút và câu lệnh tạo ảnh thể thao siêu thực, xuất dữ liệu chuẩn để tự động đăng lên Facebook.
+
+# NGUYÊN TẮC BẢO TOÀN NGỮ CẢNH (CONTEXT INTEGRITY - TUYỆT ĐỐI KHÔNG LỆCH MÔN):
+- BẠN BẮT BUỘC PHẢI ĐỐI CHIẾU SẢN PHẨM & BỘ MÔN VỚI MỌI TỪ NGỮ TRONG BÀI VIẾT, LỜI KÊU GỌI HÀNH ĐỘNG (CTA), HÌNH ẢNH VÀ KỊCH BẢN VIDEO.
+- NẾU SẢN PHẨM LÀ BƠI LỘI (kính bơi, mũ bơi, phao, đồ bơi,...):
+  + Bài viết phải tập trung vào cảm giác sảng khoái dưới nước, chống đọng sương (anti-fog), vành đệm silicon êm ái chống rò rỉ nước, bảo vệ mắt khỏi clo/nước muối, tầm nhìn trong vắt 180 độ.
+  + Lời kêu gọi hành động (CTA) PHẢI là tư vấn chọn kính bơi/độ cận/chọn mẫu & nhận quà tặng bơi lội.
+  + TUYỆT ĐỐI NGHIÊM CẤM chứa bất kỳ từ ngữ nào liên quan đến: 'vợt', 'test vợt', 'sân đấu', 'mặt sân', 'cú smash', 'dink bóng', 'căng cước', 'đá bóng'.
+- NẾU SẢN PHẨM LÀ BÓNG ĐÁ / GIÀY ĐÁ BÓNG:
+  + Tập trung vào form chân bè, đinh TF bám sân cỏ nhân tạo, tiếp bóng dính chân, giảm chấn gót. CTA chọn size giày/thử giày. TUYỆT ĐỐI KHÔNG dùng 'vợt' hay 'bơi lội'.
+- NẾU SẢN PHẨM LÀ MÁY TẬP GYM / CHẠY BỘ:
+  + Tập trung vào đốt mỡ tại nhà, giảm chấn khớp gối, động cơ êm, gấp gọn. CTA trải nghiệm/lắp đặt tại nhà. TUYỆT ĐỐI KHÔNG dùng 'vợt' hay 'kính bơi'.
+- CHỈ KHI SẢN PHẨM LÀ VỢT (Pickleball, Cầu lông, Tennis, Bóng bàn): mới được dùng 'test vợt', 'căng cước', 'dink bóng', 'smash'.
 
 # AM HIỂU CHUYÊN SÂU NGÀNH THỂ THAO & DỤNG CỤ:
 - Nắm vững các tiêu chuẩn kỹ thuật của dụng cụ thể thao:
@@ -256,7 +287,7 @@ Nhiệm vụ của bạn là tiếp nhận thông tin về dụng cụ, máy t�
   + Máy tập gym & cardio: động cơ mã lực HP êm ái, hệ thống đệm khí giảm chấn bảo vệ khớp gối và cột sống, độ dốc tự động đốt mỡ, khung thép hộp chịu lực, màn hình theo dõi nhịp tim/calo, gấp gọn tại nhà.
   + Bóng đá: da Microfiber mềm ôm chân bè, đinh TF sân cỏ nhân tạo chống trượt, đệm giảm chấn gót chân bảo vệ cổ chân, cảm giác bóng thật, sút bóng mu bàn chân uy lực.
   + Bóng rổ: da PU vân nhám sâu bám tay, ruột Butyl giữ hơi, độ nảy chuẩn FIBA, chống mài mòn sân bê tông outdoor.
-  + Bơi lội: tráng gương chống tia UV ngoài trời, nano anti-fog chống hấp hơi đọng sương, góc nhìn rộng 180 độ, vành silicon y tế êm hốc mắt.
+  + Bơi lội: tráng gương chống tia UV ngoài trời, nano anti-fog chống hấp hơi đọng sương, góc nhìn rộng 180 độ, vành silicon y tế êm hốc mắt, chống tràn nước tuyệt đối.
   + Bóng bàn: cốt carbon 5+2, mút tacky xoáy giật bóng, độ nảy đàn hồi chuẩn ITTF.
 
 # NHIỆM VỤ CỐT LÕI:
@@ -265,9 +296,9 @@ Nhiệm vụ của bạn là tiếp nhận thông tin về dụng cụ, máy t�
 - Áp dụng chuẩn xác công thức: ${copywritingFormula} (AIDA, PAS, Storytelling, FOMO, hoặc FAB).
 - Góc tiếp cận (Marketing Angle): ${marketingAngle}.
 - Văn phong/Tone: ${toneOfVoice}.
-- Có Lời kêu gọi hành động (CTA) dứt khoát: ${callToAction}.
-- Chèn Emoji thể thao năng động (🎾, 🏸, ⚽, 🏃‍♂️, 🏀, 🏓, 🏊‍♂️, 🔥, ⚡, 🏆, 🥇) tinh tế, chuyên nghiệp.
-- Cung cấp 3-5 thẻ Hashtag thịnh hành về thể thao (#PickleballVietnam, #CauLong, #BongDaPhui, #GymFitness, #TheThaoChinhHang,...).
+- Có Lời kêu gọi hành động (CTA) dứt khoát: ${effectiveCta}.
+- Chèn Emoji thể thao năng động phù hợp đúng bộ môn tinh tế, chuyên nghiệp.
+- Cung cấp 3-5 thẻ Hashtag thịnh hành đúng theo bộ môn và tên sản phẩm.
 - QUY TẮC ĐỊNH DẠNG MARKDOWN TINH GỌN (CHỐNG RÁC DẤU HOA THỊ *):
   + Sử dụng định dạng in đậm Markdown (**từ khóa**) có chọn lọc cho tiêu đề chính và các thông số cốt lõi quan trọng nhất.
   + TUYỆT ĐỐI KHÔNG bọc dấu hoa thị (*) hoặc (**) vào từng từ đơn lẻ, từng câu vụn vặt làm văn bản bị rối mắt hoặc chi chít dấu *.
@@ -275,11 +306,11 @@ Nhiệm vụ của bạn là tiếp nhận thông tin về dụng cụ, máy t�
   + Ngắt đoạn thông thoáng (mỗi ý cách nhau 1 dòng trống) để bài viết dễ đọc trên cả máy tính lẫn điện thoại di động.
 
 2. TẠO CÂU LỆNH HÌNH ẢNH / KỊCH BẢN VIDEO THỂ THAO:
-- Hình ảnh: 1 câu lệnh (prompt) chi tiết bằng tiếng Anh (cho Midjourney v6, DALL-E 3) chụp ảnh thể thao thương mại hoặc khoảnh khắc thi đấu đỉnh cao. Yêu cầu: bối cảnh sân đấu hiện đại, ánh sáng rực rỡ hoặc cinematic rim lighting, hiệu ứng chuyển động dynamic action shot, giọt mồ hôi rơi trong không trung (sweat droplets), chi tiết sắc nét 8k octane render, commercial sports product photography --ar 1:1.
+- Hình ảnh: 1 câu lệnh (prompt) chi tiết bằng tiếng Anh (cho Midjourney v6, DALL-E 3) chụp ảnh thể thao thương mại hoặc khoảnh khắc thi đấu/tập luyện đỉnh cao của sản phẩm ${productName} (${effectiveCategory}). Yêu cầu: bối cảnh đúng bộ môn (hồ bơi trong xanh, sân đấu hiện đại hoặc phòng gym cao cấp), ánh sáng rực rỡ cinematic rim lighting, hiệu ứng chuyển động dynamic action shot, chi tiết sắc nét 8k octane render, commercial sports product photography --ar 1:1.
 - Video ngắn (15-30 giây): Kịch bản Reels/TikTok thể thao bùng nổ năng lượng gồm 3 mốc thời gian:
-  + Giây 0-3: Visual hành động tốc độ cao hoặc pha bóng nghẹt thở; Audio: âm thanh va chạm bóng đanh thép (tiếng smash nổ, tiếng dink bóng đanh, tiếng sút xé gió) + tiếng thở dốc và nhịp tim dồn dập.
-  + Giây 3-10: Cận cảnh công nghệ dụng cụ/máy tập hỗ trợ bứt phá phong độ; Audio: nhạc nền workout thể thao sôi động bốc lửa.
-  + Giây 10-15: Kêu gọi hành động giữ ưu đãi/combo thể thao độc quyền; Audio: âm thanh chốt hạ dứt khoát.
+  + Giây 0-3: Visual hành động tốc độ cao phù hợp bộ môn ${effectiveCategory}; Audio: âm thanh thể thao sống động (tiếng nước rẽ sóng, tiếng đập bóng, tiếng bước chạy dứt khoát) + nhịp tim dồn dập.
+  + Giây 3-10: Cận cảnh công nghệ sản phẩm ${productName} hỗ trợ bứt phá phong độ; Audio: nhạc nền workout thể thao sôi động bốc lửa.
+  + Giây 10-15: Kêu gọi hành động giữ ưu đãi/combo thể thao độc quyền: ${effectiveCta}; Audio: âm thanh chốt hạ dứt khoát.
 
 3. ĐÓNG GÓI DỮ LIỆU ĐỂ TỰ ĐỘNG HÓA (ĐỊNH DẠNG JSON):
 - Cung cấp một đoạn mã JSON chuẩn xác, hợp lệ, chứa nội dung bài viết và prompt ảnh để các hệ thống tự động hóa (Facebook Graph API, Webhook, n8n, Make) có thể gọi API trực tiếp.
@@ -289,7 +320,7 @@ Bạn PHẢI phản hồi chính xác tuyệt đối theo cấu trúc sau (giữ
 
 ### 📝 BÀI VIẾT FACEBOOK
 [Nội dung bài viết thể thao đầy đủ của bạn ở đây. Ngắt dòng chuẩn cho Facebook, chèn Emoji hợp lý]
-[Lời kêu gọi hành động: ${callToAction}]
+[Lời kêu gọi hành động: ${effectiveCta}]
 [3-5 Hashtag]
 
 ### 🎨 GỢI Ý HÌNH ẢNH / VIDEO
@@ -315,16 +346,16 @@ Bạn PHẢI phản hồi chính xác tuyệt đối theo cấu trúc sau (giữ
     const userPrompt = `Hãy tạo chiến dịch Facebook Marketing hoàn chỉnh cho dụng cụ / sản phẩm thể thao sau:
 ${productUrl ? `- Link web / URL sản phẩm hoặc bài viết: ${productUrl}` : ''}
 - Tên sản phẩm/dụng cụ: ${productName}
-- Bộ môn / Phân loại: ${sportCategory}
+- Bộ môn / Phân loại: ${effectiveCategory}
 - Góc tiếp cận (Angle): ${marketingAngle}
 - Mô tả chi tiết & tính năng kỹ thuật vượt trội: ${productDescription}
 - Đối tượng khách hàng / Người chơi: ${targetAudience || 'Người đam mê thể thao và tập luyện'}
 - Chương trình khuyến mãi / Quà tặng độc quyền: ${offerDetails || 'Không có ưu đãi đặc biệt'}
 - Công thức viết quảng cáo: ${copywritingFormula}
 - Giọng điệu (Tone): ${toneOfVoice}
-- Lời kêu gọi hành động (CTA): ${callToAction}
+- Lời kêu gọi hành động (CTA): ${effectiveCta}
 - Thời gian lên lịch đăng bài dự kiến: ${scheduledPublishTime || 'null'}
-${additionalNotes ? `- Ghi chú chiến dịch: ${additionalNotes}` : ''}
+${effectiveNotes ? `- Ghi chú chiến dịch: ${effectiveNotes}` : ''}
 
 Hãy thực hiện đầy đủ 3 phần theo ĐỊNH DẠNG ĐẦU RA BẮT BUỘC.`;
 
@@ -361,27 +392,55 @@ Hãy thực hiện đầy đủ 3 phần theo ĐỊNH DẠNG ĐẦU RA BẮT BU�
 
     // Fallback template if all upstream calls were temporarily unavailable
     if (!rawText) {
-      const hashtags = `#${sportCategory.replace(/[\s&/]+/g, '')} #TheThaoChinhHang #${productName.replace(/[\s&/]+/g, '').slice(0, 15)} #GymFitness #PickleballVietnam`;
-      const fallbackPost = `🔥 BỨT PHÁ GIỚI HẠN - LÀM CHỦ MỌI TRẬN ĐẤU VỚI ${productName.toUpperCase()}!
-Bạn đã sẵn sàng nâng cấp phong độ và trải nghiệm cảm giác thăng hoa trên sân cùng siêu phẩm ${sportCategory.toLowerCase()} đỉnh cao thế hệ mới?
-Đừng để dụng cụ kém chất lượng hay chấn thương cản bước niềm đam mê thể thao của bạn!
+      const sportHashtag = effectiveCategory.replace(/[\s&/]+/g, '');
+      const prodHashtag = productName.replace(/[\s&/]+/g, '').slice(0, 15);
+      const hashtags = `#${sportHashtag} #TheThaoChinhHang #${prodHashtag} #TheThaoVietNam`;
+
+      const titleEmoji =
+        effectiveCategory === 'Bơi lội'
+          ? '🏊‍♂️'
+          : effectiveCategory === 'Cầu lông'
+          ? '🏸'
+          : effectiveCategory === 'Bóng đá'
+          ? '⚽'
+          : effectiveCategory === 'Máy tập gym & Cardio'
+          ? '🏃‍♂️'
+          : effectiveCategory === 'Bóng rổ'
+          ? '🏀'
+          : effectiveCategory === 'Bóng bàn'
+          ? '🏓'
+          : effectiveCategory === 'Yoga & Thể hình'
+          ? '🧘‍♀️'
+          : '🔥';
+
+      const fallbackPost = `${titleEmoji} BỨT PHÁ GIỚI HẠN - LÀM CHỦ PHONG ĐỘ VỚI ${productName.toUpperCase()}!
+Bạn đã sẵn sàng nâng cấp trải nghiệm vận động và tận hưởng cảm giác thăng hoa cùng siêu phẩm ${effectiveCategory.toLowerCase()} chính hãng thế hệ mới?
+Đừng để trang thiết bị kém chất lượng cản bước niềm đam mê thể thao của bạn!
 
 ⚡ ĐIỂM NỔI BẬT TẠO NÊN SỰ KHÁC BIỆT:
 - ${productDescription}
-- Công nghệ tối ưu lực đánh, kiểm soát nhịp độ trận đấu và bảo vệ cơ khớp tối đa.
-- Thiết kế thể thao công thái học, hỗ trợ đắc lực cho ${targetAudience || 'mọi vận động viên và người chơi phong trào'}.
+- Tối ưu hiệu năng, bảo vệ sức khỏe và cơ khớp tối đa cho người tập.
+- Thiết kế thể thao công thái học, hỗ trợ đắc lực cho ${targetAudience || 'mọi người chơi và vận động viên phong trào'}.
 
 🎁 COMBO ƯU ĐÃI ĐẶC QUYỀN TUẦN NÀY:
 ${offerDetails ? `- ${offerDetails}` : '- Tặng kèm phụ kiện thể thao chính hãng + Miễn phí vận chuyển toàn quốc!'}
 - Cam kết chính hãng 100%, bảo hành 1 đổi 1 nếu phát sinh lỗi kỹ thuật.
 
-👇 ${callToAction}!
+👇 ${effectiveCta}!
 ${hashtags}`;
 
-      const fallbackPrompt = `A dynamic commercial sports photography shot of ${productName} (${sportCategory}), captured in a modern athletic arena with cinematic rim lighting, crisp stadium spotlight, floating sweat droplets, energetic motion blur, ultra-sharp detail, photorealistic 8k octane render, cinematic sports commercial aesthetic --ar 1:1`;
-      const fallbackVideo = `- Giây 0-3: Visual: Pha bóng kịch tính hoặc khoảnh khắc tập luyện đổ mồ hôi đầy nhiệt huyết trên sân. Audio: Tiếng va đập bóng đanh thép vang dội sân đấu + nhịp tim dồn dập. Lời bình: "Bạn đã bao giờ cảm thấy thiếu đi 1 cú hích để bứt phá giới hạn?"
-- Giây 3-10: Visual: Cận cảnh ${productName} với góc quay xoay 360 độ khoe chất liệu cao cấp và công nghệ trợ lực. Audio: Nhạc trap/hiphop workout thể thao bùng nổ năng lượng. Lời bình: "Trải nghiệm cảm giác kiểm soát hoàn hảo cùng siêu phẩm ${sportCategory} thế hệ mới!"
-- Giây 10-15: Visual: Vận động viên ăn mừng chiến thắng và khung hình hiển thị combo quà tặng độc quyền. Audio: Tiếng còi mãn cuộc và giai điệu chiến thắng. Lời bình: "${callToAction} để nhận quà tặng ngay hôm nay!"`;
+      const fallbackPrompt = `A dynamic commercial sports photography shot of ${productName} (${effectiveCategory}), captured in a modern high-end athletic setting with cinematic rim lighting, crisp spotlights, energetic action motion blur, ultra-sharp detail, photorealistic 8k octane render, commercial athletic gear product photography --ar 1:1`;
+
+      const videoAction =
+        effectiveCategory === 'Bơi lội'
+          ? 'Visual: Vận động viên bơi lội rẽ sóng nước trong xanh cực êm, góc quay dưới nước trong vắt 180 độ không hấp hơi. Audio: Tiếng nước rẽ sóng sảng khoái.'
+          : effectiveCategory === 'Máy tập gym & Cardio'
+          ? 'Visual: Bước chạy bứt tốc mạnh mẽ trên máy tập, cơ đùi săn chắc đổ mồ hôi. Audio: Tiếng động cơ êm ái cùng nhịp tim dồn dập.'
+          : 'Visual: Khoảnh khắc bứt tốc hoặc xử lý chuẩn xác đầy nhiệt huyết trên sân. Audio: Âm thanh thể thao đanh thép sống động.';
+
+      const fallbackVideo = `- Giây 0-3: ${videoAction} Lời bình: "Bạn đã bao giờ cảm thấy thiếu đi 1 người bạn đồng hành để bứt phá giới hạn?"
+- Giây 3-10: Visual: Cận cảnh ${productName} với góc quay xoay 360 độ khoe chất liệu cao cấp và công nghệ tối ưu. Audio: Nhạc workout thể thao bùng nổ năng lượng. Lời bình: "Trải nghiệm cảm giác làm chủ hoàn hảo cùng siêu phẩm ${effectiveCategory} thế hệ mới!"
+- Giây 10-15: Visual: Vận động viên tràn đầy năng lượng và khung hình hiển thị combo quà tặng độc quyền. Audio: Âm thanh chốt hạ dứt khoát. Lời bình: "${effectiveCta} ngay hôm nay để không bỏ lỡ phần quà hấp dẫn!"`;
 
       rawText = `### 📝 BÀI VIẾT FACEBOOK
 ${fallbackPost}
@@ -438,6 +497,23 @@ ${fallbackVideo}
       }
     }
 
+    // Context sanity check: if the product is NOT a racket sport, strip any accidental racket phrases
+    const isRacketSport =
+      effectiveCategory === 'Pickleball' ||
+      effectiveCategory === 'Cầu lông' ||
+      effectiveCategory === 'Bóng bàn' ||
+      productName.toLowerCase().includes('vợt');
+
+    if (!isRacketSport) {
+      const racketRegex = /test vợt miễn phí tại sân & nhận ưu đãi quà tặng!?|test vợt miễn phí tại sân|test vợt/gi;
+      if (racketRegex.test(facebookPost)) {
+        facebookPost = facebookPost.replace(racketRegex, effectiveCta);
+      }
+      if (racketRegex.test(videoScript)) {
+        videoScript = videoScript.replace(racketRegex, effectiveCta);
+      }
+    }
+
     // 3. Extract JSON
     const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (jsonMatch) {
@@ -457,8 +533,17 @@ ${fallbackVideo}
         media_generation_prompt: imagePrompt || '',
         product_url: productUrl || null,
       };
-    } else if (productUrl && !parsedJson.product_url) {
-      parsedJson.product_url = productUrl;
+    } else {
+      if (productUrl && !parsedJson.product_url) {
+        parsedJson.product_url = productUrl;
+      }
+      // If message in JSON has outdated racket CTA on non-racket product
+      if (!isRacketSport && parsedJson.message) {
+        const racketRegex = /test vợt miễn phí tại sân & nhận ưu đãi quà tặng!?|test vợt miễn phí tại sân|test vợt/gi;
+        if (racketRegex.test(parsedJson.message)) {
+          parsedJson.message = parsedJson.message.replace(racketRegex, effectiveCta);
+        }
+      }
     }
 
     return res.json({

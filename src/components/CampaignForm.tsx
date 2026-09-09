@@ -3,6 +3,12 @@ import { Sparkles, Wand2, RefreshCw, Calendar, Tag, Target, MessageSquare, Layer
 import { CampaignInput, CopywritingFormula, SportCategory, MarketingAngle } from '../types';
 import { SAMPLE_CAMPAIGNS } from '../data/samples';
 import { extractUrlClientSide } from '../data/clientFallbackGenerator';
+import {
+  sanitizeCtaForSport,
+  sanitizeNotesForSport,
+  SPORT_CTA_PRESETS,
+  SPORT_NOTES_PRESETS,
+} from '../data/sportsContextHelper';
 
 interface CampaignFormProps {
   formData: CampaignInput;
@@ -95,15 +101,29 @@ export default function CampaignForm({
         const json = await res.json();
         if (json.success && json.data) {
           const extracted = json.data;
-          setFormData((prev) => ({
-            ...prev,
-            productName: extracted.productName || prev.productName,
-            sportCategory: extracted.sportCategory || prev.sportCategory,
-            productDescription: extracted.productDescription || prev.productDescription,
-            targetAudience: extracted.targetAudience || prev.targetAudience,
-            offerDetails: extracted.offerDetails || prev.offerDetails,
-            marketingAngle: extracted.marketingAngle || prev.marketingAngle,
-          }));
+          setFormData((prev) => {
+            const nextCategory = extracted.sportCategory || prev.sportCategory;
+            const nextProductName = extracted.productName || prev.productName;
+            const nextCta =
+              extracted.callToAction ||
+              sanitizeCtaForSport(nextCategory, nextProductName, prev.callToAction);
+            const nextNotes =
+              extracted.additionalNotes !== undefined
+                ? extracted.additionalNotes
+                : sanitizeNotesForSport(nextCategory, nextProductName, prev.additionalNotes);
+
+            return {
+              ...prev,
+              productName: nextProductName,
+              sportCategory: nextCategory,
+              productDescription: extracted.productDescription || prev.productDescription,
+              targetAudience: extracted.targetAudience || prev.targetAudience,
+              offerDetails: extracted.offerDetails || prev.offerDetails,
+              marketingAngle: extracted.marketingAngle || prev.marketingAngle,
+              callToAction: nextCta,
+              additionalNotes: nextNotes,
+            };
+          });
 
           setExtractMessage({
             type: 'success',
@@ -117,13 +137,26 @@ export default function CampaignForm({
       // Fallback for static hosting (GitHub Pages)
       try {
         const clientExtracted = extractUrlClientSide(formData.productUrl.trim());
-        setFormData((prev) => ({
-          ...prev,
-          productName: clientExtracted.productName || prev.productName,
-          sportCategory: (clientExtracted.sportCategory as any) || prev.sportCategory,
-          productDescription: clientExtracted.productDescription || prev.productDescription,
-          offerDetails: clientExtracted.offerDetails || prev.offerDetails,
-        }));
+        setFormData((prev) => {
+          const nextCategory = (clientExtracted.sportCategory as any) || prev.sportCategory;
+          const nextProductName = clientExtracted.productName || prev.productName;
+          const nextCta =
+            clientExtracted.callToAction ||
+            sanitizeCtaForSport(nextCategory, nextProductName, prev.callToAction);
+          const nextNotes =
+            clientExtracted.additionalNotes ||
+            sanitizeNotesForSport(nextCategory, nextProductName, prev.additionalNotes);
+
+          return {
+            ...prev,
+            productName: nextProductName,
+            sportCategory: nextCategory,
+            productDescription: clientExtracted.productDescription || prev.productDescription,
+            offerDetails: clientExtracted.offerDetails || prev.offerDetails,
+            callToAction: nextCta,
+            additionalNotes: nextNotes,
+          };
+        });
         setExtractMessage({
           type: 'success',
           text: `Đã phân tích đường link thành công (chế độ tĩnh GitHub Pages)!`,
@@ -137,6 +170,31 @@ export default function CampaignForm({
     } finally {
       setIsExtracting(false);
     }
+  };
+
+  const handleSportCategorySelect = (category: SportCategory) => {
+    setFormData((prev) => {
+      const isRacketSport =
+        category === 'Pickleball' || category === 'Cầu lông' || category === 'Bóng bàn';
+      const isOldCtaRacket = /test vợt|vợt|căng cước|dink bóng|smash/i.test(prev.callToAction);
+      const nextCta =
+        !prev.callToAction || (!isRacketSport && isOldCtaRacket)
+          ? sanitizeCtaForSport(category, prev.productName, '')
+          : prev.callToAction;
+
+      const isOldNotesRacket = /dink bóng|vợt|smash/i.test(prev.additionalNotes || '');
+      const nextNotes =
+        !prev.additionalNotes || (!isRacketSport && isOldNotesRacket)
+          ? sanitizeNotesForSport(category, prev.productName, '')
+          : prev.additionalNotes;
+
+      return {
+        ...prev,
+        sportCategory: category,
+        callToAction: nextCta,
+        additionalNotes: nextNotes,
+      };
+    });
   };
 
   return (
@@ -275,7 +333,7 @@ export default function CampaignForm({
               <button
                 key={cat.label}
                 type="button"
-                onClick={() => handleInputChange('sportCategory', cat.label)}
+                onClick={() => handleSportCategorySelect(cat.label)}
                 className={`px-2.5 py-2 rounded-xl text-xs font-semibold text-left flex items-center gap-1.5 border transition-all ${
                   formData.sportCategory === cat.label
                     ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-bold ring-1 ring-emerald-400 shadow-xs'
@@ -420,17 +478,47 @@ export default function CampaignForm({
           </div>
 
           <div>
-            <label htmlFor="callToAction" className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider">
-              Lời Kêu Gọi Hành Động (CTA)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="callToAction" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Lời Kêu Gọi Hành Động (CTA)
+              </label>
+              {formData.sportCategory && (
+                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-medium border border-emerald-200/60">
+                  Chuẩn môn: {formData.sportCategory}
+                </span>
+              )}
+            </div>
             <input
               id="callToAction"
               type="text"
               value={formData.callToAction}
               onChange={(e) => handleInputChange('callToAction', e.target.value)}
-              placeholder="Nhắn tin ngay để test vợt tại sân & nhận ưu đãi quà tặng!"
+              placeholder={
+                (SPORT_CTA_PRESETS[formData.sportCategory] || SPORT_CTA_PRESETS['Dụng cụ thể thao khác'])[0] ||
+                'Nhắn tin ngay để nhận tư vấn & ưu đãi quà tặng!'
+              }
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all"
             />
+
+            {/* Quick CTA preset chips */}
+            <div className="mt-1.5 flex flex-wrap gap-1 items-center">
+              <span className="text-[10px] text-slate-400 font-medium">Gợi ý nhanh:</span>
+              {(SPORT_CTA_PRESETS[formData.sportCategory] || SPORT_CTA_PRESETS['Dụng cụ thể thao khác']).slice(0, 3).map((cta, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleInputChange('callToAction', cta)}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-all truncate max-w-[210px] ${
+                    formData.callToAction === cta
+                      ? 'bg-emerald-50 border-emerald-400 text-emerald-700 font-semibold'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                  }`}
+                  title={cta}
+                >
+                  {cta}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -466,15 +554,32 @@ export default function CampaignForm({
             </div>
 
             <div>
-              <label htmlFor="additionalNotes" className="block text-xs font-bold text-slate-700 mb-1">
-                Ghi Chú Phong Cách Riêng / Yêu Cầu Kỹ Thuật Thể Thao
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="additionalNotes" className="block text-xs font-bold text-slate-700">
+                  Ghi Chú Phong Cách Riêng / Yêu Cầu Kỹ Thuật Thể Thao
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleInputChange(
+                      'additionalNotes',
+                      SPORT_NOTES_PRESETS[formData.sportCategory] || SPORT_NOTES_PRESETS['Dụng cụ thể thao khác']
+                    )
+                  }
+                  className="text-[10px] text-emerald-600 hover:text-emerald-700 font-semibold"
+                >
+                  Áp dụng gợi ý chuẩn bộ môn
+                </button>
+              </div>
               <input
                 id="additionalNotes"
                 type="text"
                 value={formData.additionalNotes}
                 onChange={(e) => handleInputChange('additionalNotes', e.target.value)}
-                placeholder="Ví dụ: Nhấn mạnh cảm giác dink bóng êm tay, bảo hành 1 đổi 1 trong 30 ngày..."
+                placeholder={
+                  SPORT_NOTES_PRESETS[formData.sportCategory] ||
+                  'Ví dụ: Nhấn mạnh công nghệ, chứng nhận chính hãng và bảo hành 1 đổi 1...'
+                }
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white focus:border-emerald-500 text-xs text-slate-800 outline-none"
               />
             </div>
