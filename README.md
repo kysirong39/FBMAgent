@@ -36,19 +36,45 @@ Truy cập ứng dụng tại: `http://localhost:3000`
 
 ---
 
-## 🌐 Hướng Dẫn Deploy Lên GitHub Pages (Static Hosting)
+## 🌐 Hướng Dẫn Deploy Lên GitHub Pages & Khắc Phục Lỗi Chưa Thấy Link URL
 
 Dự án đã được cấu hình sẵn để chạy trơn tru trên **GitHub Pages**:
 1. Đã bật đường dẫn tương đối `base: './'` trong `vite.config.ts` (tránh lỗi màn hình trắng 404 assets).
 2. Tích hợp sẵn workflow tự động build và deploy: `.github/workflows/deploy.yml`.
-3. Tích hợp bộ **Client-Side Fallback Generator**: Trên GitHub Pages (vốn là hosting tĩnh không có Node.js backend), ứng dụng vẫn tự động tạo nội dung chiến dịch marketing và phân tích link URL mà không bị lỗi mạng.
+3. Tích hợp sẵn file `.nojekyll` và `404.html` trong `public/` giúp load assets và định tuyến SPA an toàn.
+4. Tích hợp bộ **Client-Side Fallback Generator**: Trên GitHub Pages (hosting tĩnh), ứng dụng vẫn tự động tạo chiến dịch và quét link web mượt mà.
 
-### Các bước kích hoạt GitHub Pages:
-1. Đẩy mã nguồn lên repository GitHub của bạn (`git push origin main`).
-2. Truy cập **Settings** của repository trên GitHub.
-3. Vào mục **Pages** (ở cột menu bên trái).
-4. Tại phần **Build and deployment > Source**, chọn **GitHub Actions**.
-5. GitHub sẽ tự động chạy quy trình `.github/workflows/deploy.yml` và cung cấp link trang web hoạt động sau khoảng 1-2 phút!
+---
+
+### ⚠️ TẠI SAO BẠN SETTING PAGES XONG NHƯNG CHƯA THẤY LINK URL WEB?
+
+Trên GitHub, thanh thông báo màu xanh lá chứa link URL (`https://<username>.github.io/<repo-name>/`) **CHỈ XUẤT HIỆN SAU KHI TIẾN TRÌNH BUILD & DEPLOY ĐẦU TIÊN CHẠY THÀNH CÔNG**. Nếu bạn chỉ vào Settings chọn nguồn mà chưa chạy lệnh build hoặc chưa kích hoạt action, GitHub sẽ chưa có file HTML tĩnh để cấp link.
+
+Chọn **1 trong 2 cách** đơn giản dưới đây để link xuất hiện ngay:
+
+#### ⚡ CÁCH 1: Kích hoạt chạy GitHub Actions (Khuyên dùng - Không cần gõ lệnh)
+Nếu ở **Settings > Pages**, mục **Source** bạn đã chọn là **"GitHub Actions"**:
+1. Trên trang repository GitHub của bạn, bấm vào tab **"Actions"** (ở thanh menu trên cùng, cạnh tab Code / Pull requests).
+2. Ở danh sách bên trái, nhấp chọn workflow: **"Deploy to GitHub Pages"**.
+3. Nhìn sang góc bên phải, bấm vào nút màu xanh **"Run workflow"** > Chọn branch `main` (hoặc `master`) > Bấm nút **"Run workflow"**.
+4. Chờ khoảng 1-2 phút cho đến khi workflow chạy xong và hiện dấu tích xanh **✅**.
+5. Quay lại **Settings > Pages**, bạn sẽ thấy đường link web màu xanh lá xuất hiện ngay lập tức ở đầu trang!
+
+> 💡 **Lưu ý quan trọng về quyền hạn Actions:** Nếu workflow báo lỗi quyền (Permission denied), hãy vào **Settings** > **Actions** > **General** > cuộn xuống mục **Workflow permissions** > chọn **"Read and write permissions"** > bấm **Save**.
+
+---
+
+#### ⚡ CÁCH 2: Dùng lệnh 1-Click `npm run deploy` (Cực kỳ nhanh & ổn định)
+Dự án đã cài đặt sẵn thư viện `gh-pages` chuyên dụng cho React/Vite:
+1. Mở terminal tại thư mục dự án và chạy:
+   ```bash
+   npm run deploy
+   ```
+   *(Lệnh này sẽ tự động build web vào thư mục `dist` và tự tạo nhánh `gh-pages` trên GitHub của bạn).*
+2. Trên GitHub, vào **Settings > Pages**.
+3. Tại mục **Build and deployment > Source**, chọn **"Deploy from a branch"**.
+4. Tại mục **Branch**, chọn nhánh **`gh-pages`** và thư mục **`/(root)`** > Bấm **Save**.
+5. Chỉ sau 30 giây, link URL web sẽ hiển thị ngay lập tức!
 
 ---
 
